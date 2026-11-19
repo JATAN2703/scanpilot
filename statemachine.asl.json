@@ -1,0 +1,439 @@
+{
+  "Comment": "ScanPilot pipeline, one run per job. Stages are placeholders until the real scanners plug in.",
+  "StartAt": "ModeChoice",
+  "States": {
+    "ModeChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.mode",
+          "StringEquals": "pentest_only",
+          "Next": "SetPentest"
+        }
+      ],
+      "Default": "SetSast"
+    },
+    "SetSast": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${jobs_table}",
+        "Key": {
+          "customer_id": {
+            "S.$": "$.customer_id"
+          },
+          "job_id": {
+            "S.$": "$.job_id"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, updated_at = :t",
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "SAST"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Sast"
+    },
+    "Sast": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${stage_fn}",
+        "Payload": {
+          "stage": "sast",
+          "customer_id.$": "$.customer_id",
+          "job_id.$": "$.job_id",
+          "bucket.$": "$.bucket",
+          "target.$": "$.target",
+          "force_fail_step.$": "$.force_fail_step"
+        }
+      },
+      "ResultSelector": {
+        "output_key.$": "$.Payload.output_key"
+      },
+      "ResultPath": "$.sast",
+      "TimeoutSeconds": 120,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Next": "SetTriage"
+    },
+    "SetTriage": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${jobs_table}",
+        "Key": {
+          "customer_id": {
+            "S.$": "$.customer_id"
+          },
+          "job_id": {
+            "S.$": "$.job_id"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, updated_at = :t",
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "TRIAGE"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Triage"
+    },
+    "Triage": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${stage_fn}",
+        "Payload": {
+          "stage": "triage",
+          "customer_id.$": "$.customer_id",
+          "job_id.$": "$.job_id",
+          "bucket.$": "$.bucket",
+          "target.$": "$.target",
+          "force_fail_step.$": "$.force_fail_step"
+        }
+      },
+      "ResultSelector": {
+        "output_key.$": "$.Payload.output_key"
+      },
+      "ResultPath": "$.triage",
+      "TimeoutSeconds": 120,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Next": "AfterTriage"
+    },
+    "AfterTriage": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.mode",
+          "StringEquals": "sast_only",
+          "Next": "SetReport"
+        }
+      ],
+      "Default": "SetPentest"
+    },
+    "SetPentest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${jobs_table}",
+        "Key": {
+          "customer_id": {
+            "S.$": "$.customer_id"
+          },
+          "job_id": {
+            "S.$": "$.job_id"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, updated_at = :t",
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "PENTEST"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Pentest"
+    },
+    "Pentest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${stage_fn}",
+        "Payload": {
+          "stage": "pentest",
+          "customer_id.$": "$.customer_id",
+          "job_id.$": "$.job_id",
+          "bucket.$": "$.bucket",
+          "target.$": "$.target",
+          "force_fail_step.$": "$.force_fail_step"
+        }
+      },
+      "ResultSelector": {
+        "output_key.$": "$.Payload.output_key"
+      },
+      "ResultPath": "$.pentest",
+      "TimeoutSeconds": 120,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "TargetNotVerified"
+          ],
+          "MaxAttempts": 0
+        },
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.pentest_error",
+          "Next": "PentestFailed"
+        }
+      ],
+      "Next": "SetReport"
+    },
+    "PentestFailed": {
+      "Type": "Pass",
+      "Result": true,
+      "ResultPath": "$.pentest_failed",
+      "Next": "SetReport"
+    },
+    "SetReport": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${jobs_table}",
+        "Key": {
+          "customer_id": {
+            "S.$": "$.customer_id"
+          },
+          "job_id": {
+            "S.$": "$.job_id"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, updated_at = :t",
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "REPORT"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Report"
+    },
+    "Report": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${stage_fn}",
+        "Payload": {
+          "stage": "report",
+          "customer_id.$": "$.customer_id",
+          "job_id.$": "$.job_id",
+          "bucket.$": "$.bucket",
+          "target.$": "$.target",
+          "force_fail_step.$": "$.force_fail_step"
+        }
+      },
+      "ResultSelector": {
+        "output_key.$": "$.Payload.output_key"
+      },
+      "ResultPath": "$.report",
+      "TimeoutSeconds": 120,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "MarkFailed"
+        }
+      ],
+      "Next": "FinalChoice"
+    },
+    "FinalChoice": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.pentest_failed",
+              "IsPresent": true
+            },
+            {
+              "Variable": "$.pentest_failed",
+              "BooleanEquals": true
+            }
+          ],
+          "Next": "MarkPartial"
+        }
+      ],
+      "Default": "MarkDone"
+    },
+    "MarkDone": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${jobs_table}",
+        "Key": {
+          "customer_id": {
+            "S.$": "$.customer_id"
+          },
+          "job_id": {
+            "S.$": "$.job_id"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, report_key = :r, updated_at = :t",
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "DONE"
+          },
+          ":r": {
+            "S.$": "$.report.output_key"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        }
+      },
+      "ResultPath": null,
+      "End": true
+    },
+    "MarkPartial": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${jobs_table}",
+        "Key": {
+          "customer_id": {
+            "S.$": "$.customer_id"
+          },
+          "job_id": {
+            "S.$": "$.job_id"
+          }
+        },
+        "UpdateExpression": "SET #s = :s, report_key = :r, updated_at = :t",
+        "ExpressionAttributeValues": {
+          ":s": {
+            "S": "PARTIAL"
+          },
+          ":r": {
+            "S.$": "$.report.output_key"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        }
+      },
+      "ResultPath": null,
+      "End": true
+    },
+    "MarkFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${jobs_table}",
+        "Key": {
+          "customer_id": {
+            "S.$": "$.customer_id"
+          },
+          "job_id": {
+            "S.$": "$.job_id"
+          }
+        },
+        "UpdateExpression": "SET failed_step = #s, #s = :f, error_name = :n, error_info = :e, updated_at = :t",
+        "ExpressionAttributeValues": {
+          ":f": {
+            "S": "FAILED"
+          },
+          ":n": {
+            "S.$": "$.error.Error"
+          },
+          ":e": {
+            "S.$": "States.JsonToString($.error)"
+          },
+          ":t": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "JobFailed",
+      "Cause": "A step kept failing after retries. See the job item in DynamoDB."
+    }
+  }
+}
