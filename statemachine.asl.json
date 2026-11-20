@@ -46,22 +46,29 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "${stage_fn}",
+        "FunctionName": "${sast_fn}",
         "Payload": {
           "stage": "sast",
           "customer_id.$": "$.customer_id",
           "job_id.$": "$.job_id",
           "bucket.$": "$.bucket",
-          "target.$": "$.target",
+          "code_key.$": "$.code_key",
           "force_fail_step.$": "$.force_fail_step"
         }
       },
       "ResultSelector": {
-        "output_key.$": "$.Payload.output_key"
+        "output_key.$": "$.Payload.output_key",
+        "summary.$": "$.Payload.summary"
       },
       "ResultPath": "$.sast",
       "TimeoutSeconds": 120,
       "Retry": [
+        {
+          "ErrorEquals": [
+            "UploadInvalid"
+          ],
+          "MaxAttempts": 0
+        },
         {
           "ErrorEquals": [
             "States.TaskFailed"
@@ -95,13 +102,16 @@
             "S.$": "$.job_id"
           }
         },
-        "UpdateExpression": "SET #s = :s, updated_at = :t",
+        "UpdateExpression": "SET #s = :s, updated_at = :t, sast_summary = :sum",
         "ExpressionAttributeValues": {
           ":s": {
             "S": "TRIAGE"
           },
           ":t": {
             "S.$": "$$.State.EnteredTime"
+          },
+          ":sum": {
+            "S.$": "States.JsonToString($.sast.summary)"
           }
         },
         "ExpressionAttributeNames": {

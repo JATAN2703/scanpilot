@@ -7,6 +7,7 @@ resource "aws_sfn_state_machine" "pipeline" {
   definition = templatefile("${path.module}/statemachine.asl.json", {
     jobs_table = aws_dynamodb_table.jobs.name
     stage_fn   = aws_lambda_function.fn["stage_stub"].arn
+    sast_fn    = aws_lambda_function.sast.arn
   })
 }
 
