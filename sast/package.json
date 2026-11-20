@@ -1,0 +1,13 @@
+{
+  "name": "scanpilot-sast",
+  "version": "1.0.0",
+  "description": "ScanPilot SAST stage: runs the course SAST scanner (scanner.js) on an uploaded code zip, as a Lambda",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node test/local.mjs"
+  },
+  "dependencies": {
+    "adm-zip": "0.6.1"
+  }
+}

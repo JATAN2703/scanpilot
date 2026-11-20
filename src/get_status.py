@@ -2,6 +2,7 @@
 
 Its own Lambda, separate from create_job, so status checks never wait behind job creation.
 """
+import json
 import os
 
 import boto3
@@ -20,6 +21,8 @@ def view(item, with_report_link=False):
     out = {k: item[k] for k in FIELDS if k in item}
     if "error_info" in item:
         out["error_info"] = str(item["error_info"])[:300]
+    if "sast_summary" in item:
+        out["sast_summary"] = json.loads(item["sast_summary"])
     if with_report_link and "report_key" in item:
         out["report_url"] = s3.generate_presigned_url(
             "get_object", Params={"Bucket": BUCKET, "Key": item["report_key"]}, ExpiresIn=900
